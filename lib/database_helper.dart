@@ -36,6 +36,30 @@ class DatabaseHelper {
         venue TEXT NOT NULL
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE goods (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id INTEGER,
+        group_name TEXT NOT NULL,
+        member_name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        name TEXT NOT NULL,
+        quantity INTEGER NOT NULL,
+        price INTEGER NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE expenses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id INTEGER,
+        event_name TEXT,
+        category TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        memo TEXT
+      )
+    ''');
   }
 
   Future<int> insertEvent(Map<String, dynamic> event) async {
@@ -49,6 +73,36 @@ class DatabaseHelper {
 
     return await db.query(
       'events',
+      orderBy: 'id DESC',
+    );
+  }
+
+  Future<int> insertGoods(Map<String, dynamic> goods) async {
+    final db = await instance.database;
+
+    return await db.insert('goods', goods);
+  }
+
+  Future<List<Map<String, dynamic>>> getGoods() async {
+    final db = await instance.database;
+
+    return await db.query(
+      'goods',
+      orderBy: 'id DESC',
+    );
+  }
+
+  Future<int> insertExpense(Map<String, dynamic> expense) async {
+    final db = await instance.database;
+
+    return await db.insert('expenses', expense);
+  }
+
+  Future<List<Map<String, dynamic>>> getExpenses() async {
+    final db = await instance.database;
+
+    return await db.query(
+      'expenses',
       orderBy: 'id DESC',
     );
   }

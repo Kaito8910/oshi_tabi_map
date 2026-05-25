@@ -5,8 +5,21 @@ void main() {
   runApp(const OshiTabiMapApp());
 }
 
-class OshiTabiMapApp extends StatelessWidget {
+class OshiTabiMapApp extends StatefulWidget {
   const OshiTabiMapApp({super.key});
+
+  @override
+  State<OshiTabiMapApp> createState() => _OshiTabiMapAppState();
+}
+
+class _OshiTabiMapAppState extends State<OshiTabiMapApp> {
+  bool darkMode = false;
+
+  void updateDarkMode(bool value) {
+    setState(() {
+      darkMode = value;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -14,16 +27,27 @@ class OshiTabiMapApp extends StatelessWidget {
       title: '推し旅マップ',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorSchemeSeed: Colors.pink,
+        colorSchemeSeed: Colors.amber,
         useMaterial3: true,
+        brightness: darkMode ? Brightness.dark : Brightness.light,
       ),
-      home: const MainScreen(),
+      home: MainScreen(
+        darkMode: darkMode,
+        onDarkModeChanged: updateDarkMode,
+      ),
     );
   }
 }
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key});
+  final bool darkMode;
+  final ValueChanged<bool> onDarkModeChanged;
+
+  const MainScreen({
+    super.key,
+    required this.darkMode,
+    required this.onDarkModeChanged,
+  });
 
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -31,20 +55,33 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int currentIndex = 0;
-
-  final List<Widget> pages = const [
-    HomePage(),
-    EventPage(),
-    GoodsPage(),
-    ExpensePage(),
-    SettingsPage(),
-  ];
+  bool hidePriceOnStartup = false;
 
   @override
   Widget build(BuildContext context) {
+    final pages = [
+      const HomePage(),
+      const EventPage(),
+      GoodsPage(
+        hidePriceOnStartup: hidePriceOnStartup,
+      ),
+      ExpensePage(
+        hidePriceOnStartup: hidePriceOnStartup,
+      ),
+      SettingsPage(
+        hidePriceOnStartup: hidePriceOnStartup,
+        darkMode: widget.darkMode,
+        onHidePriceChanged: (value) {
+          setState(() {
+            hidePriceOnStartup = value;
+          });
+        },
+        onDarkModeChanged: widget.onDarkModeChanged,
+      ),
+    ];
+
     return Scaffold(
       body: pages[currentIndex],
-
       bottomNavigationBar: NavigationBar(
         selectedIndex: currentIndex,
         onDestinationSelected: (index) {
@@ -53,43 +90,201 @@ class _MainScreenState extends State<MainScreen> {
           });
         },
         destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home),
-            label: 'ホーム',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.event),
-            label: 'イベント',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.shopping_bag),
-            label: 'グッズ',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.attach_money),
-            label: '費用',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.settings),
-            label: '設定',
-          ),
+          NavigationDestination(icon: Icon(Icons.home), label: 'ホーム'),
+          NavigationDestination(icon: Icon(Icons.event), label: 'イベント'),
+          NavigationDestination(icon: Icon(Icons.shopping_bag), label: 'グッズ'),
+          NavigationDestination(icon: Icon(Icons.attach_money), label: '費用'),
+          NavigationDestination(icon: Icon(Icons.settings), label: '設定'),
         ],
       ),
     );
   }
 }
 
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
   @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  int eventCount = 0;
+  int goodsQuantity = 0;
+  int expenseTotal = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    loadSummary();
+  }
+
+  Future<void> loadSummary() async {
+    final events = await DatabaseHelper.instance.getEvents();
+    final goods = await DatabaseHelper.instance.getGoods();
+    final expenses = await DatabaseHelper.instance.getExpenses();
+
+    final totalGoodsQuantity = goods.fold<int>(
+      0,
+      (sum, item) => sum + (item['quantity'] as int? ?? 0),
+    );
+
+    final totalExpense = expenses.fold<int>(
+      0,
+      (sum, item) => sum + (item['amount'] as int? ?? 0),
+    );
+
+    setState(() {
+      eventCount = events.length;
+      goodsQuantity = totalGoodsQuantity;
+      expenseTotal = totalExpense;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Text(
-        '推し旅マップ',
-        style: TextStyle(
-          fontSize: 32,
-          fontWeight: FontWeight.bold,
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('推し旅マップ'),
+      ),
+      body: RefreshIndicator(
+        onRefresh: loadSummary,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.grey.shade900 : Colors.amber.shade100,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '推し活の記録をまとめよう',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text('イベント・グッズ・費用をまとめて管理できます'),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            const Text(
+              'サマリー',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: 1.1,
+              children: [
+                _SummaryCard(
+                  icon: Icons.event,
+                  title: 'イベント',
+                  value: '$eventCount件',
+                ),
+                _SummaryCard(
+                  icon: Icons.shopping_bag,
+                  title: 'グッズ',
+                  value: '$goodsQuantity個',
+                ),
+                _SummaryCard(
+                  icon: Icons.attach_money,
+                  title: '費用',
+                  value: '¥$expenseTotal',
+                ),
+                const _SummaryCard(
+                  icon: Icons.map,
+                  title: '遠征',
+                  value: '0都道府県',
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+
+            const Text(
+              '次にやること',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            const Card(
+              child: ListTile(
+                leading: Icon(Icons.add),
+                title: Text('イベントを登録する'),
+                subtitle: Text('まずは参加予定・参加済みイベントを追加しよう'),
+              ),
+            ),
+
+            const Card(
+              child: ListTile(
+                leading: Icon(Icons.shopping_bag),
+                title: Text('グッズを登録する'),
+                subtitle: Text('CD・Blu-ray・アクスタなどを記録しよう'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SummaryCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String value;
+
+  const _SummaryCard({
+    required this.icon,
+    required this.title,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon),
+            const SizedBox(height: 10),
+            Text(title),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -188,7 +383,12 @@ class _EventPageState extends State<EventPage> {
 }
 
 class GoodsPage extends StatefulWidget {
-  const GoodsPage({super.key});
+  final bool hidePriceOnStartup;
+
+  const GoodsPage({
+    super.key,
+    required this.hidePriceOnStartup,
+  });
 
   @override
   State<GoodsPage> createState() => _GoodsPageState();
@@ -196,113 +396,150 @@ class GoodsPage extends StatefulWidget {
 
 class _GoodsPageState extends State<GoodsPage> {
   bool isPriceVisible = true;
-  final List<Map<String, String>> goodsList = [
-    {
-      'group': 'DIALOGUE+',
-      'member': '内山悠里菜',
-      'category': 'アクスタ',
-      'name': 'ライブグッズ アクスタ',
-      'quantity': '2',
-      'price': '3000',
-    },
-  ];
+  List<Map<String, dynamic>> goodsList = [];
+
+  @override
+  void initState() {
+    super.initState();
+    isPriceVisible = !widget.hidePriceOnStartup;
+    loadGoods();
+  }
+
+  Future<void> loadGoods() async {
+    final data = await DatabaseHelper.instance.getGoods();
+
+    setState(() {
+      goodsList = data;
+    });
+  }
+
+  Future<void> addGoods(Map<String, dynamic> goods) async {
+    await DatabaseHelper.instance.insertGoods(goods);
+    await loadGoods();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final totalQuantity = goodsList.fold<int>(
+      0,
+      (sum, item) => sum + (item['quantity'] as int? ?? 0),
+    );
+
     final totalPrice = goodsList.fold<int>(
       0,
-      (sum, item) => sum + int.parse(item['price']!),
+      (sum, item) => sum + (item['price'] as int? ?? 0),
     );
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('グッズ'),
       ),
       body: Column(
-      children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          color: Colors.pink.shade50,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '総グッズ数: ${goodsList.length}',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            color: Theme.of(context).brightness == Brightness.dark
+                ? Colors.grey.shade900
+                : Colors.amber.shade100,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '総グッズ数: $totalQuantity',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-
-              const SizedBox(height: 8),
-
-              Row(
-                children: [
-                  Text(
-                    isPriceVisible
-                        ? '総金額: ¥$totalPrice'
-                        : '総金額: ******',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-
-                  IconButton(
-                    onPressed: () {
-                      setState(() {
-                        isPriceVisible = !isPriceVisible;
-                      });
-                    },
-                    icon: Icon(
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text(
                       isPriceVisible
-                          ? Icons.visibility
-                          : Icons.visibility_off,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: goodsList.isEmpty
-          ? const Center(
-              child: Text('まだグッズが登録されていません'),
-            )
-            : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: goodsList.length,
-              itemBuilder: (context, index) {
-                final goods = goodsList[index];
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: ListTile(
-                    leading: const Icon(Icons.shopping_bag),
-                    title: Text(
-                      goods['name']!,
+                          ? '総金額: ¥$totalPrice'
+                          : '総金額: ******',
                       style: const TextStyle(
+                        fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    subtitle: Text(
-                      '${goods['group']} / ${goods['member']}\n'
-                      '${goods['category']} / ${goods['quantity']}個 / ${goods['price']}円',
+                    IconButton(
+                      onPressed: () {
+                        setState(() {
+                          isPriceVisible = !isPriceVisible;
+                        });
+                      },
+                      icon: Icon(
+                        isPriceVisible
+                            ? Icons.visibility
+                            : Icons.visibility_off,
+                      ),
                     ),
-                    isThreeLine: true,
-                  ),
-                );
-              },
+                  ],
+                ),
+              ],
             ),
+          ),
+          Expanded(
+            child: goodsList.isEmpty
+                ? const Center(
+                    child: Text('まだグッズが登録されていません'),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: goodsList.length,
+                    itemBuilder: (context, index) {
+                      final goods = goodsList[index];
+
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        child: ListTile(
+                          leading: const Icon(Icons.shopping_bag),
+                          title: Text(
+                            goods['name'],
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '${goods['group_name']} / ${goods['member_name']}\n'
+                            '${goods['category']} / ${goods['quantity']}個 / ${goods['price']}円',
+                          ),
+                          isThreeLine: true,
+                        ),
+                      );
+                    },
+                  ),
           ),
         ],
       ),
-    );    
+      floatingActionButton: FloatingActionButton(
+        onPressed: () async {
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const GoodsAddPage(),
+            ),
+          );
+
+          if (result != null) {
+            await addGoods(result);
+          }
+        },
+        child: const Icon(Icons.add),
+      ),
+    );
   }
 }
 
 class ExpensePage extends StatefulWidget {
-  const ExpensePage({super.key});
+  final bool hidePriceOnStartup;
+
+  const ExpensePage({
+    super.key,
+    required this.hidePriceOnStartup,
+  });
 
   @override
   State<ExpensePage> createState() => _ExpensePageState();
@@ -311,20 +548,33 @@ class ExpensePage extends StatefulWidget {
 class _ExpensePageState extends State<ExpensePage> {
   bool isAmountVisible = true;
 
-  final List<Map<String, String>> expenses = [
-    {
-      'event': 'DIALOGUE+ FCイベント',
-      'category': 'チケット代',
-      'amount': '7700',
-      'memo': '先行チケット',
-    },
-  ];
+  List<Map<String, dynamic>> expenses = [];
+
+  @override
+  void initState() {
+    super.initState();
+    isAmountVisible = !widget.hidePriceOnStartup;
+    loadExpenses();
+  }
+
+  Future<void> loadExpenses() async {
+    final data = await DatabaseHelper.instance.getExpenses();
+
+    setState(() {
+      expenses = data;
+    });
+  }
+
+  Future<void> addExpense(Map<String, dynamic> expense) async {
+    await DatabaseHelper.instance.insertExpense(expense);
+    await loadExpenses();
+  }
 
   @override
   Widget build(BuildContext context) {
     final totalAmount = expenses.fold<int>(
       0,
-      (sum, item) => sum + int.parse(item['amount']!),
+      (sum, item) => sum + (item['amount'] as int? ?? 0),
     );
 
     return Scaffold(
@@ -336,7 +586,9 @@ class _ExpensePageState extends State<ExpensePage> {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
-            color: Colors.pink.shade50,
+            color: Theme.of(context).brightness == Brightness.dark
+                ? Colors.grey.shade900
+                : Colors.amber.shade100,
             child: Row(
               children: [
                 Expanded(
@@ -381,13 +633,13 @@ class _ExpensePageState extends State<ExpensePage> {
                         child: ListTile(
                           leading: const Icon(Icons.receipt_long),
                           title: Text(
-                            expense['category']!,
+                            expense['category'],
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                           subtitle: Text(
-                            '${expense['event']}\n${expense['memo']}',
+                            '${expense['event_name'] ?? 'イベント未設定'}\n${expense['memo'] ?? ''}',
                           ),
                           isThreeLine: true,
                           trailing: Text(
@@ -415,9 +667,7 @@ class _ExpensePageState extends State<ExpensePage> {
           );
 
           if (result != null) {
-            setState(() {
-              expenses.add(result);
-            });
+            await addExpense(result);
           }
         },
         child: const Icon(Icons.add),
@@ -425,14 +675,82 @@ class _ExpensePageState extends State<ExpensePage> {
     );
   }
 }
-
 class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key});
+  final bool hidePriceOnStartup;
+  final bool darkMode;
+  final ValueChanged<bool> onHidePriceChanged;
+  final ValueChanged<bool> onDarkModeChanged;
+
+  const SettingsPage({
+    super.key,
+    required this.hidePriceOnStartup,
+    required this.darkMode,
+    required this.onHidePriceChanged,
+    required this.onDarkModeChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Text('設定'),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('設定'),
+      ),
+      body: ListView(
+        children: [
+          const SizedBox(height: 12),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              '表示設定',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ),
+          SwitchListTile(
+            title: const Text('起動時に総金額を非表示'),
+            subtitle: const Text('グッズ・費用の金額を隠します'),
+            value: hidePriceOnStartup,
+            onChanged: onHidePriceChanged,
+          ),
+          SwitchListTile(
+            title: const Text('ダークモード'),
+            subtitle: const Text('画面を暗いテーマにします'),
+            value: darkMode,
+            onChanged: onDarkModeChanged,
+          ),
+          const Divider(),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'データ管理',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.backup),
+            title: const Text('バックアップ'),
+            subtitle: const Text('今後実装予定'),
+            onTap: () {},
+          ),
+          ListTile(
+            leading: const Icon(Icons.restore),
+            title: const Text('データ復元'),
+            subtitle: const Text('今後実装予定'),
+            onTap: () {},
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_forever),
+            title: const Text('データ初期化'),
+            subtitle: const Text('すべてのデータを削除'),
+            onTap: () {},
+          ),
+          const Divider(),
+          const ListTile(
+            leading: Icon(Icons.info),
+            title: Text('推し旅マップ'),
+            subtitle: Text('Version 0.1.0'),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -618,12 +936,13 @@ class _GoodsAddPageState extends State<GoodsAddPage> {
                   Navigator.pop(
                     context,
                     {
-                      'group': groupController.text,
-                      'member': memberController.text,
+                      'event_id': null,
+                      'group_name': groupController.text,
+                      'member_name': memberController.text,
                       'category': selectedCategory,
                       'name': nameController.text,
-                      'quantity': quantityController.text,
-                      'price': priceController.text,
+                      'quantity': int.tryParse(quantityController.text) ?? 0,
+                      'price': int.tryParse(priceController.text) ?? 0,
                     },
                   );
                 },
@@ -687,7 +1006,9 @@ class EventDetailPage extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.pink.shade50,
+                color: Theme.of(context).brightness == Brightness.dark
+                  ? Colors.grey.shade900
+                  : Colors.amber.shade50,
                 borderRadius: BorderRadius.circular(16),
               ),
 
@@ -762,6 +1083,7 @@ class ExpenseAddPage extends StatefulWidget {
 class _ExpenseAddPageState extends State<ExpenseAddPage> {
   final amountController = TextEditingController();
   final memoController = TextEditingController();
+  final eventController = TextEditingController();
 
   String selectedCategory = 'チケット代';
 
@@ -784,6 +1106,14 @@ class _ExpenseAddPageState extends State<ExpenseAddPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            TextField(
+              controller: eventController,
+              decoration: const InputDecoration(
+                labelText: '対象イベント',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               initialValue: selectedCategory,
               decoration: const InputDecoration(
@@ -828,8 +1158,10 @@ class _ExpenseAddPageState extends State<ExpenseAddPage> {
                   Navigator.pop(
                     context,
                     {
+                      'event_id': null,
+                      'event_name': eventController.text,
                       'category': selectedCategory,
-                      'amount': amountController.text,
+                      'amount': int.tryParse(amountController.text) ?? 0,
                       'memo': memoController.text,
                     },
                   );
