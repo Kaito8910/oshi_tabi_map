@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flex_color_picker/flex_color_picker.dart';
 import 'database_helper.dart';
 
 void main() {
@@ -26,6 +29,17 @@ class _OshiTabiMapAppState extends State<OshiTabiMapApp> {
     return MaterialApp(
       title: '推し旅マップ',
       debugShowCheckedModeBanner: false,
+      locale: const Locale('ja'),
+
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+
+      supportedLocales: const [
+        Locale('ja'),
+      ],
       theme: ThemeData(
         colorSchemeSeed: Colors.amber,
         useMaterial3: true,
@@ -61,6 +75,7 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     final pages = [
       const HomePage(),
+      const OshiPage(),
       const EventPage(),
       GoodsPage(
         hidePriceOnStartup: hidePriceOnStartup,
@@ -91,6 +106,7 @@ class _MainScreenState extends State<MainScreen> {
         },
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home), label: 'ホーム'),
+          NavigationDestination(icon: Icon(Icons.favorite), label: '推し'),
           NavigationDestination(icon: Icon(Icons.event), label: 'イベント'),
           NavigationDestination(icon: Icon(Icons.shopping_bag), label: 'グッズ'),
           NavigationDestination(icon: Icon(Icons.attach_money), label: '費用'),
@@ -194,7 +210,7 @@ class _HomePageState extends State<HomePage> {
               physics: const NeverScrollableScrollPhysics(),
               crossAxisSpacing: 12,
               mainAxisSpacing: 12,
-              childAspectRatio: 1.1,
+              childAspectRatio: 0.9,
               children: [
                 _SummaryCard(
                   icon: Icons.event,
@@ -253,39 +269,455 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-class _SummaryCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String value;
+class OshiPage extends StatefulWidget {
+  const OshiPage({super.key});
 
-  const _SummaryCard({
-    required this.icon,
-    required this.title,
-    required this.value,
-  });
+  @override
+  State<OshiPage> createState() => _OshiPageState();
+}
+
+class _OshiPageState extends State<OshiPage> {
+  List<Map<String, dynamic>> oshis = [];
+
+  @override
+  void initState() {
+    super.initState();
+    loadOshis();
+  }
+
+  Future<void> loadOshis() async {
+    final data = await DatabaseHelper.instance.getOshis();
+
+    setState(() {
+      oshis = data;
+    });
+  }
+
+  Future<void> addOshi(Map<String, dynamic> oshi) async {
+    await DatabaseHelper.instance.insertOshi(oshi);
+    await loadOshis();
+  }
+
+  Future<void> updateOshiItem(
+    int id,
+    Map<String, dynamic> oshi,
+  ) async {
+    await DatabaseHelper.instance.updateOshi(id, oshi);
+    await loadOshis();
+  }
+
+  Future<void> deleteOshiItem(int id) async {
+    await DatabaseHelper.instance.deleteOshi(id);
+    await loadOshis();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('推し'),
+      ),
+      body: oshis.isEmpty
+          ? const Center(
+              child: Text('まだ推しが登録されていません'),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: oshis.length,
+              itemBuilder: (context, index) {
+                final oshi = oshis[index];
+                final color = Color(
+                  int.tryParse(oshi['color_value']?.toString() ?? '') ?? 0xFFFF9800,
+                );
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: ListTile(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => OshiDetailPage(
+                            oshi: oshi,
+                          ),
+                        ),
+                      );
+                    },
+                    leading: CircleAvatar(
+                      backgroundColor: color,
+                      child: Text(
+                        oshi['name'].toString().isNotEmpty
+                            ? oshi['name'].toString()[0]
+                            : '?',
+                        style: TextStyle(
+                          color: color == Colors.black
+                              ? Colors.white
+                              : Colors.black,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    title: Text(
+                      oshi['name'],
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${oshi['group_name'] ?? ''}\n${oshi['memo'] ?? ''}',
+                    ),
+                    isThreeLine: true,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.edit),
+                          onPressed: () async {
+                            final result = await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => OshiAddPage(
+                                  oshi: oshi,
+                                ),
+                              ),
+                            );
+
+                            if (result != null) {
+                              await updateOshiItem(oshi['id'], result);
+                            }
+                          },
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete),
+                          onPressed: () async {
+                            await deleteOshiItem(oshi['id']);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () async {
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const OshiAddPage(),
+            ),
+          );
+
+          if (result != null) {
+            await addOshi(result);
+          }
+        },
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
+
+class OshiAddPage extends StatefulWidget {
+  final Map<String, dynamic>? oshi;
+
+  const OshiAddPage({
+    super.key,
+    this.oshi,
+  });
+
+  @override
+  State<OshiAddPage> createState() => _OshiAddPageState();
+}
+
+class _OshiAddPageState extends State<OshiAddPage> {
+  final nameController = TextEditingController();
+  final groupController = TextEditingController();
+  final memoController = TextEditingController();
+
+  final colorController = TextEditingController();
+  Color selectedColor = Colors.orange;
+
+  @override
+  void initState() {
+    super.initState();
+
+    if (widget.oshi != null) {
+      nameController.text = widget.oshi!['name'];
+      groupController.text = widget.oshi!['group_name'] ?? '';
+      memoController.text = widget.oshi!['memo'] ?? '';
+      colorController.text = widget.oshi!['color'] ?? '';
+      selectedColor = Color(
+        int.tryParse(widget.oshi!['color_value']?.toString() ?? '') ?? 0xFFFF9800,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.oshi == null ? '推し追加' : '推し編集'),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon),
-            const SizedBox(height: 10),
-            Text(title),
-            const SizedBox(height: 4),
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: '推し名',
+                border: OutlineInputBorder(),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            TextField(
+              controller: groupController,
+              decoration: const InputDecoration(
+                labelText: 'グループ名',
+                border: OutlineInputBorder(),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            TextField(
+              controller: colorController,
+              decoration: const InputDecoration(
+                labelText: 'メンバーカラー名',
+                hintText: '例：サーモンピンク、ミントグリーン',
+                border: OutlineInputBorder(),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('表示カラー'),
+              subtitle: const Text('タップして色を選択'),
+              trailing: CircleAvatar(
+                backgroundColor: selectedColor,
+              ),
+              onTap: () async {
+                final color = await showColorPickerDialog(
+                  context,
+                  selectedColor,
+                );
+
+                setState(() {
+                  selectedColor = color;
+                });
+              },
+            ),
+
+            const SizedBox(height: 12),
+
+            TextField(
+              controller: memoController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'メモ',
+                border: OutlineInputBorder(),
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () {
+                  Navigator.pop(
+                    context,
+                    {
+                      'name': nameController.text,
+                      'group_name': groupController.text,
+                      'group_name_normalized': normalizeText(groupController.text),
+                      'color': colorController.text,
+                      'color_value': selectedColor.value.toString(),
+                      'memo': memoController.text,
+                    },
+                  );
+                },
+                child: Text(widget.oshi == null ? '登録' : '更新'),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class OshiDetailPage extends StatefulWidget {
+  final Map<String, dynamic> oshi;
+
+  const OshiDetailPage({
+    super.key,
+    required this.oshi,
+  });
+
+  @override
+  State<OshiDetailPage> createState() => _OshiDetailPageState();
+}
+
+class _OshiDetailPageState extends State<OshiDetailPage> {
+  List<Map<String, dynamic>> goodsList = [];
+
+  @override
+  void initState() {
+    super.initState();
+    loadOshiGoods();
+  }
+
+  Future<void> loadOshiGoods() async {
+    final allGoods = await DatabaseHelper.instance.getGoods();
+
+    final filteredGoods = allGoods.where((goods) {
+      return goods['oshi_id'] == widget.oshi['id'] ||
+          goods['oshi_name'] == widget.oshi['name'];
+    }).toList();
+
+    setState(() {
+      goodsList = filteredGoods;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Color(
+      int.tryParse(widget.oshi['color_value']?.toString() ?? '') ?? 0xFFFF9800,
+    );
+
+    final totalQuantity = goodsList.fold<int>(
+      0,
+      (sum, item) => sum + (item['quantity'] as int? ?? 0),
+    );
+
+    final totalPrice = goodsList.fold<int>(
+      0,
+      (sum, item) => sum + (item['price'] as int? ?? 0),
+    );
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.oshi['name']),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 32,
+                  backgroundColor: color,
+                  child: Text(
+                    widget.oshi['name'].toString().isNotEmpty
+                        ? widget.oshi['name'].toString()[0]
+                        : '?',
+                    style: TextStyle(
+                      color: color == Colors.black
+                          ? Colors.white
+                          : Colors.black,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(width: 16),
+
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.oshi['name'] ?? '',
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      if ((widget.oshi['group_name'] ?? '').toString().isNotEmpty)
+                        Text(
+                          widget.oshi['group_name'],
+                          style: const TextStyle(fontSize: 16),
+                        ),
+                      if ((widget.oshi['color'] ?? '').toString().isNotEmpty)
+                        Text(
+                          'カラー：${widget.oshi['color']}',
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            childAspectRatio: 1.3,
+            children: [
+              _SummaryCard(
+                icon: Icons.shopping_bag,
+                title: 'グッズ数',
+                value: '$totalQuantity個',
+              ),
+              _SummaryCard(
+                icon: Icons.attach_money,
+                title: 'グッズ金額',
+                value: '¥$totalPrice',
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+
+          const Text(
+            '関連グッズ',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          if (goodsList.isEmpty)
+            const Card(
+              child: ListTile(
+                title: Text('この推しのグッズはまだありません'),
+              ),
+            )
+          else
+            ...goodsList.map((goods) {
+              return Card(
+                child: ListTile(
+                  leading: const Icon(Icons.shopping_bag),
+                  title: Text(goods['name']),
+                  subtitle: Text(
+                    '${goods['category']} / ${goods['quantity']}個 / ${goods['price']}円',
+                  ),
+                ),
+              );
+            }),
+        ],
       ),
     );
   }
@@ -320,49 +752,135 @@ class _EventPageState extends State<EventPage> {
     await loadEvents();
   }
 
+  Future<void> deleteEventItem(int id) async {
+    await DatabaseHelper.instance.deleteEvent(id);
+    await loadEvents();
+  }
+
+  Future<void> updateEventItem(
+    int id,
+    Map<String, dynamic> event,
+  ) async {
+    await DatabaseHelper.instance.updateEvent(id, event);
+    await loadEvents();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final today = DateTime.now();
+
+    DateTime parseDate(String date) {
+      return DateTime.tryParse(date.replaceAll('/', '-')) ?? DateTime(1900);
+    }
+
+    final upcomingEvents = events.where((event) {
+      final eventDate = parseDate(event['date']);
+      return !eventDate.isBefore(
+        DateTime(today.year, today.month, today.day),
+      );
+    }).toList();
+
+    final pastEvents = events.where((event) {
+      final eventDate = parseDate(event['date']);
+      return eventDate.isBefore(
+        DateTime(today.year, today.month, today.day),
+      );
+    }).toList();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('イベント'),
       ),
       body: events.isEmpty
-          ? const Center(
-              child: Text('まだイベントが登録されていません'),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: events.length,
-              itemBuilder: (context, index) {
-                final event = events[index];
+        ? const Center(
+            child: Text('まだイベントが登録されていません'),
+          )
+        : ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              const Text(
+                'これからのイベント',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
 
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
+              const SizedBox(height: 12),
+
+              if (upcomingEvents.isEmpty)
+                const Card(
                   child: ListTile(
-                    onTap: () {
-                      Navigator.push(
+                    title: Text('予定されているイベントはありません'),
+                  ),
+                )
+              else
+                ...upcomingEvents.map((event) {
+                  return EventCard(
+                    event: event,
+                    onDelete: () async {
+                      await deleteEventItem(event['id']);
+                    },
+                    onEdit: () async {
+                      final result = await Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => EventDetailPage(
+                          builder: (context) => EventAddPage(
                             event: event,
                           ),
                         ),
                       );
+
+                      if (result != null) {
+                        await updateEventItem(event['id'], result);
+                      }
                     },
-                    leading: const Icon(Icons.event),
-                    title: Text(
-                      event['title'],
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    subtitle: Text(
-                      '${event['date']} / ${event['venue']}',
-                    ),
+                  );
+                }),
+
+              const SizedBox(height: 24),
+
+              const Text(
+                '過去のイベント',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              if (pastEvents.isEmpty)
+                const Card(
+                  child: ListTile(
+                    title: Text('過去のイベントはありません'),
                   ),
-                );
-              },
-            ),
+                )
+              else
+                ...pastEvents.map((event) {
+                  return EventCard(
+                    event: event,
+                    onDelete: () async {
+                      await deleteEventItem(event['id']);
+                    },
+                    onEdit: () async {
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => EventAddPage(
+                            event: event,
+                          ),
+                        ),
+                      );
+
+                      if (result != null) {
+                        await updateEventItem(event['id'], result);
+                      }
+                    },
+                  );
+                }),
+            ],
+          ),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
           final result = await Navigator.push(
@@ -415,6 +933,19 @@ class _GoodsPageState extends State<GoodsPage> {
 
   Future<void> addGoods(Map<String, dynamic> goods) async {
     await DatabaseHelper.instance.insertGoods(goods);
+    await loadGoods();
+  }
+
+  Future<void> deleteGoodsItem(int id) async {
+    await DatabaseHelper.instance.deleteGoods(id);
+    await loadGoods();
+  }
+
+  Future<void> updateGoodsItem(
+    int id,
+    Map<String, dynamic> goods,
+  ) async {
+    await DatabaseHelper.instance.updateGoods(id, goods);
     await loadGoods();
   }
 
@@ -507,6 +1038,34 @@ class _GoodsPageState extends State<GoodsPage> {
                             '${goods['category']} / ${goods['quantity']}個 / ${goods['price']}円',
                           ),
                           isThreeLine: true,
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit),
+                                onPressed: () async {
+                                  final result = await Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => GoodsAddPage(
+                                        goods: goods,
+                                      ),
+                                    ),
+                                  );
+
+                                  if (result != null) {
+                                    await updateGoodsItem(goods['id'], result);
+                                  }
+                                },
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete),
+                                onPressed: () async {
+                                  await deleteGoodsItem(goods['id']);
+                                },
+                              ),
+                            ],
+                          ),
                         ),
                       );
                     },
@@ -567,6 +1126,19 @@ class _ExpensePageState extends State<ExpensePage> {
 
   Future<void> addExpense(Map<String, dynamic> expense) async {
     await DatabaseHelper.instance.insertExpense(expense);
+    await loadExpenses();
+  }
+
+  Future<void> deleteExpenseItem(int id) async {
+    await DatabaseHelper.instance.deleteExpense(id);
+    await loadExpenses();
+  }
+
+  Future<void> updateExpenseItem(
+    int id,
+    Map<String, dynamic> expense,
+  ) async {
+    await DatabaseHelper.instance.updateExpense(id, expense);
     await loadExpenses();
   }
 
@@ -642,13 +1214,41 @@ class _ExpensePageState extends State<ExpensePage> {
                             '${expense['event_name'] ?? 'イベント未設定'}\n${expense['memo'] ?? ''}',
                           ),
                           isThreeLine: true,
-                          trailing: Text(
-                            isAmountVisible
-                                ? '¥${expense['amount']}'
-                                : '******',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                            ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                isAmountVisible
+                                    ? '¥${expense['amount']}'
+                                    : '******',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.edit),
+                                onPressed: () async {
+                                  final result = await Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => ExpenseAddPage(
+                                        expense: expense,
+                                      ),
+                                    ),
+                                  );
+
+                                  if (result != null) {
+                                    await updateExpenseItem(expense['id'], result);
+                                  }
+                                },
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete),
+                                onPressed: () async {
+                                  await deleteExpenseItem(expense['id']);
+                                },
+                              ),
+                            ],
                           ),
                         ),
                       );
@@ -756,7 +1356,12 @@ class SettingsPage extends StatelessWidget {
 }
 
 class EventAddPage extends StatefulWidget {
-  const EventAddPage({super.key});
+  final Map<String, dynamic>? event;
+
+  const EventAddPage({
+    super.key,
+    this.event,
+  });
 
   @override
   State<EventAddPage> createState() => _EventAddPageState();
@@ -768,10 +1373,32 @@ class _EventAddPageState extends State<EventAddPage> {
   final venueController = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+
+    if (widget.event != null) {
+      titleController.text = widget.event!['title'];
+      dateController.text = widget.event!['date'];
+      venueController.text = widget.event!['venue'];
+    } else {
+      final now = DateTime.now();
+      dateController.text = formatDate(now);
+    }
+  }
+
+  String formatDate(DateTime date) {
+    final year = date.year.toString();
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+
+    return '$year-$month-$day';
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('イベント追加'),
+        title: Text(widget.event == null ? 'イベント追加' : 'イベント編集'),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -789,10 +1416,57 @@ class _EventAddPageState extends State<EventAddPage> {
 
             TextField(
               controller: dateController,
+              readOnly: true,
               decoration: const InputDecoration(
                 labelText: '日付',
                 border: OutlineInputBorder(),
+                suffixIcon: Icon(Icons.calendar_month),
               ),
+              onTap: () {
+                DateTime selectedDate =
+                    DateTime.tryParse(dateController.text) ?? DateTime.now();
+
+                showModalBottomSheet(
+                  context: context,
+                  builder: (context) {
+                    return SizedBox(
+                      height: 260,
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                },
+                                child: const Text('キャンセル'),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  dateController.text = formatDate(selectedDate);
+                                  Navigator.pop(context);
+                                },
+                                child: const Text('決定'),
+                              ),
+                            ],
+                          ),
+                          Expanded(
+                            child: CupertinoDatePicker(
+                              mode: CupertinoDatePickerMode.date,
+                              dateOrder: DatePickerDateOrder.ymd,
+                              initialDateTime: selectedDate,
+                              onDateTimeChanged: (date) {
+                                selectedDate = date;
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
             ),
 
             const SizedBox(height: 12),
@@ -820,7 +1494,7 @@ class _EventAddPageState extends State<EventAddPage> {
                     },
                   );
                 },
-                child: const Text('登録'),
+                child: Text(widget.event == null ? '登録' : '更新'),
               ),
             ),
           ],
@@ -831,7 +1505,14 @@ class _EventAddPageState extends State<EventAddPage> {
 }
 
 class GoodsAddPage extends StatefulWidget {
-  const GoodsAddPage({super.key});
+  final int? defaultEventId;
+  final Map<String, dynamic>? goods;
+
+  const GoodsAddPage({
+    super.key,
+    this.defaultEventId,
+    this.goods,
+  });
 
   @override
   State<GoodsAddPage> createState() => _GoodsAddPageState();
@@ -843,8 +1524,16 @@ class _GoodsAddPageState extends State<GoodsAddPage> {
   final nameController = TextEditingController();
   final quantityController = TextEditingController();
   final priceController = TextEditingController();
+  final oshiController = TextEditingController();
+  
+  int? selectedOshiId;
+  List<Map<String, dynamic>> oshis = [];
 
   String selectedCategory = 'CD';
+  String purchaseType = 'イベント';
+  int? selectedEventId;
+
+  List<Map<String, dynamic>> events = [];
 
   final List<String> categories = const [
     'CD',
@@ -859,15 +1548,107 @@ class _GoodsAddPageState extends State<GoodsAddPage> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+
+    if (widget.goods != null) {
+      groupController.text = widget.goods!['group_name'];
+      memberController.text = widget.goods!['member_name'];
+      nameController.text = widget.goods!['name'];
+      quantityController.text = widget.goods!['quantity'].toString();
+      priceController.text = widget.goods!['price'].toString();
+      selectedCategory = widget.goods!['category'];
+      selectedEventId = widget.goods!['event_id'];
+      purchaseType = selectedEventId == null ? 'その他' : 'イベント';
+      selectedOshiId = widget.goods!['oshi_id'];
+      oshiController.text = widget.goods!['oshi_name'] ?? '';
+    } else if (widget.defaultEventId != null) {
+      purchaseType = 'イベント';
+      selectedEventId = widget.defaultEventId;
+    }
+
+    loadEvents();
+    loadOshis();
+  }
+
+  Future<void> loadEvents() async {
+    final data = await DatabaseHelper.instance.getEvents();
+
+    setState(() {
+      events = data;
+
+      if (selectedEventId == null && events.isNotEmpty) {
+        selectedEventId = events.first['id'];
+      }
+    });
+  }
+
+  Future<void> loadOshis() async {
+    final data = await DatabaseHelper.instance.getOshis();
+
+    setState(() {
+      oshis = data;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('グッズ追加'),
+        title: Text(widget.goods == null ? 'グッズ追加' : 'グッズ編集'),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            DropdownButtonFormField<String>(
+              initialValue: purchaseType,
+              decoration: const InputDecoration(
+                labelText: '購入タイプ',
+                border: OutlineInputBorder(),
+              ),
+              items: const [
+                DropdownMenuItem(
+                  value: 'イベント',
+                  child: Text('イベントで購入'),
+                ),
+                DropdownMenuItem(
+                  value: 'その他',
+                  child: Text('通販・店舗・中古など'),
+                ),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  purchaseType = value!;
+                });
+              },
+            ),
+
+            const SizedBox(height: 12),
+
+            if (purchaseType == 'イベント')
+              DropdownButtonFormField<int>(
+                initialValue: selectedEventId,
+                decoration: const InputDecoration(
+                  labelText: '対象イベント',
+                  border: OutlineInputBorder(),
+                ),
+                items: events.map((event) {
+                  return DropdownMenuItem<int>(
+                    value: event['id'],
+                    child: Text(event['title']),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  setState(() {
+                    selectedEventId = value;
+                  });
+                },
+              ),
+
+            if (purchaseType == 'イベント')
+              const SizedBox(height: 12),
+
             TextField(
               controller: groupController,
               decoration: const InputDecoration(
@@ -875,7 +1656,9 @@ class _GoodsAddPageState extends State<GoodsAddPage> {
                 border: OutlineInputBorder(),
               ),
             ),
+
             const SizedBox(height: 12),
+
             TextField(
               controller: memberController,
               decoration: const InputDecoration(
@@ -883,7 +1666,57 @@ class _GoodsAddPageState extends State<GoodsAddPage> {
                 border: OutlineInputBorder(),
               ),
             ),
+
             const SizedBox(height: 12),
+
+            DropdownButtonFormField<int?>(
+              initialValue: selectedOshiId,
+              decoration: const InputDecoration(
+                labelText: '推しリストから選択',
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                const DropdownMenuItem<int?>(
+                  value: null,
+                  child: Text('選択しない / 自由入力'),
+                ),
+                ...oshis.map((oshi) {
+                  return DropdownMenuItem<int?>(
+                    value: oshi['id'],
+                    child: Text(oshi['name']),
+                  );
+                }),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  selectedOshiId = value;
+
+                  if (value != null) {
+                    final selected = oshis.firstWhere(
+                      (oshi) => oshi['id'] == value,
+                    );
+
+                    oshiController.text = selected['name'] ?? '';
+                    memberController.text = selected['name'] ?? '';
+                    groupController.text = selected['group_name'] ?? '';
+                  }
+                });
+              },
+            ),
+
+            const SizedBox(height: 12),
+
+            TextField(
+              controller: oshiController,
+              decoration: const InputDecoration(
+                labelText: '推し名',
+                hintText: 'リストにない場合は自由入力',
+                border: OutlineInputBorder(),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
             DropdownButtonFormField<String>(
               initialValue: selectedCategory,
               decoration: const InputDecoration(
@@ -902,7 +1735,9 @@ class _GoodsAddPageState extends State<GoodsAddPage> {
                 });
               },
             ),
+
             const SizedBox(height: 12),
+
             TextField(
               controller: nameController,
               decoration: const InputDecoration(
@@ -910,7 +1745,9 @@ class _GoodsAddPageState extends State<GoodsAddPage> {
                 border: OutlineInputBorder(),
               ),
             ),
+
             const SizedBox(height: 12),
+
             TextField(
               controller: quantityController,
               keyboardType: TextInputType.number,
@@ -919,7 +1756,9 @@ class _GoodsAddPageState extends State<GoodsAddPage> {
                 border: OutlineInputBorder(),
               ),
             ),
+
             const SizedBox(height: 12),
+
             TextField(
               controller: priceController,
               keyboardType: TextInputType.number,
@@ -928,7 +1767,9 @@ class _GoodsAddPageState extends State<GoodsAddPage> {
                 border: OutlineInputBorder(),
               ),
             ),
+
             const SizedBox(height: 20),
+
             SizedBox(
               width: double.infinity,
               child: FilledButton(
@@ -936,9 +1777,13 @@ class _GoodsAddPageState extends State<GoodsAddPage> {
                   Navigator.pop(
                     context,
                     {
-                      'event_id': null,
+                      'event_id': purchaseType == 'イベント'
+                          ? selectedEventId
+                          : null,
                       'group_name': groupController.text,
                       'member_name': memberController.text,
+                      'oshi_id': selectedOshiId,
+                      'oshi_name': oshiController.text,
                       'category': selectedCategory,
                       'name': nameController.text,
                       'quantity': int.tryParse(quantityController.text) ?? 0,
@@ -946,7 +1791,7 @@ class _GoodsAddPageState extends State<GoodsAddPage> {
                     },
                   );
                 },
-                child: const Text('登録'),
+                child: Text(widget.goods == null ? '登録' : '更新'),
               ),
             ),
           ],
@@ -956,7 +1801,7 @@ class _GoodsAddPageState extends State<GoodsAddPage> {
   }
 }
 
-class EventDetailPage extends StatelessWidget {
+class EventDetailPage extends StatefulWidget {
   final Map<String, dynamic> event;
 
   const EventDetailPage({
@@ -965,21 +1810,129 @@ class EventDetailPage extends StatelessWidget {
   });
 
   @override
+  State<EventDetailPage> createState() => _EventDetailPageState();
+}
+
+class _EventDetailPageState extends State<EventDetailPage> {
+  List<Map<String, dynamic>> eventGoods = [];
+  List<Map<String, dynamic>> eventExpenses = [];
+
+  @override
+  void initState() {
+    super.initState();
+    loadEventGoods();
+  }
+
+  Future<void> loadEventGoods() async {
+    final eventId = widget.event['id'];
+
+    if (eventId == null) return;
+
+    final goodsData =
+        await DatabaseHelper.instance.getGoodsByEventId(eventId);
+
+    final expenseData =
+        await DatabaseHelper.instance.getExpensesByEventId(eventId);
+
+    setState(() {
+      eventGoods = goodsData;
+      eventExpenses = expenseData;
+    });
+  }
+
+  Future<void> deleteEventGoodsItem(int id) async {
+    await DatabaseHelper.instance.deleteGoods(id);
+    await loadEventGoods();
+  }
+
+  Future<void> deleteEventExpenseItem(int id) async {
+    await DatabaseHelper.instance.deleteExpense(id);
+    await loadEventGoods();
+  }
+
+  Future<void> updateEventGoodsItem(
+    int id,
+    Map<String, dynamic> goods,
+  ) async {
+    await DatabaseHelper.instance.updateGoods(id, goods);
+    await loadEventGoods();
+  }
+
+
+  @override
   Widget build(BuildContext context) {
+    final goodsTotal = eventGoods.fold<int>(
+      0,
+      (sum, item) => sum + (item['price'] as int? ?? 0),
+    );
+    final expenseTotal = eventExpenses.fold<int>(
+      0,
+      (sum, item) => sum + (item['amount'] as int? ?? 0),
+    );
+
+    final totalCost = goodsTotal + expenseTotal;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('イベント詳細'),
       ),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: 'addGoods',
+            onPressed: () async {
+              final result = await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => GoodsAddPage(
+                    defaultEventId: widget.event['id'],
+                  ),
+                ),
+              );
+
+              if (result != null) {
+                await DatabaseHelper.instance.insertGoods(result);
+                await loadEventGoods();
+              }
+            },
+            icon: const Icon(Icons.shopping_bag),
+            label: const Text('グッズ追加'),
+          ),
+
+          const SizedBox(height: 12),
+
+          FloatingActionButton.extended(
+            heroTag: 'addExpense',
+            onPressed: () async {
+              final result = await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ExpenseAddPage(
+                    defaultEventId: widget.event['id'],
+                    defaultEventName: widget.event['title'],
+                  ),
+                ),
+              );
+
+              if (result != null) {
+                await DatabaseHelper.instance.insertExpense(result);
+                await loadEventGoods();
+              }
+            },
+            icon: const Icon(Icons.receipt_long),
+            label: const Text('費用追加'),
+          ),
+        ],
+      ),
 
       body: Padding(
         padding: const EdgeInsets.all(16),
-
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-
           children: [
             Text(
-              event['title'],
+              widget.event['title'],
               style: const TextStyle(
                 fontSize: 28,
                 fontWeight: FontWeight.bold,
@@ -989,46 +1942,60 @@ class EventDetailPage extends StatelessWidget {
             const SizedBox(height: 12),
 
             Text(
-              event['date'],
+              widget.event['date'],
               style: const TextStyle(fontSize: 18),
             ),
 
             const SizedBox(height: 8),
 
             Text(
-              event['venue'],
+              widget.event['venue'],
               style: const TextStyle(fontSize: 18),
             ),
 
             const SizedBox(height: 24),
 
+            
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Theme.of(context).brightness == Brightness.dark
-                  ? Colors.grey.shade900
-                  : Colors.amber.shade50,
+                    ? Colors.grey.shade900
+                    : Colors.amber.shade50,
                 borderRadius: BorderRadius.circular(16),
               ),
-
-              child: const Column(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '費用合計: ¥0',
-                    style: TextStyle(
+                    'グッズ代合計: ¥$goodsTotal',
+                    style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
+                  const SizedBox(height: 8),
 
-                  SizedBox(height: 8),
+                  Text(
+                    '費用合計: ¥$expenseTotal',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
 
-                  Text('交通費: ¥0'),
-                  Text('宿泊費: ¥0'),
-                  Text('チケット代: ¥0'),
-                  Text('グッズ代: ¥0'),
+                  const SizedBox(height: 8),
+
+                  Text(
+                    '総額: ¥$totalCost',
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text('購入グッズ数: ${eventGoods.length}件'),
                 ],
               ),
             ),
@@ -1046,25 +2013,103 @@ class EventDetailPage extends StatelessWidget {
             const SizedBox(height: 12),
 
             Expanded(
-              child: ListView(
-                children: const [
-                  Card(
-                    child: ListTile(
-                      leading: Icon(Icons.shopping_bag),
-                      title: Text('ライブグッズ アクスタ'),
-                      subtitle: Text('2個 / 3000円'),
-                    ),
-                  ),
+              child: eventGoods.isEmpty
+                ? const Center(
+                  child: Text('このイベントのグッズはまだありません'),
+                )
+                : ListView.builder(
+                  itemCount: eventGoods.length,
+                  itemBuilder: (context, index) {
+                    final goods = eventGoods[index];
 
-                  Card(
-                    child: ListTile(
-                      leading: Icon(Icons.shopping_bag),
-                      title: Text('缶バッジ'),
-                      subtitle: Text('5個 / 2500円'),
-                    ),
-                  ),
-                ],
+                    return Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.shopping_bag),
+                        title: Text(goods['name']),
+                        subtitle: Text(
+                          '${goods['group_name']} / ${goods['member_name']}\n'
+                          '${goods['category']} / ${goods['quantity']}個 / ${goods['price']}円',
+                        ),
+                        isThreeLine: true,
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit),
+                              onPressed: () async {
+                                final result = await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => GoodsAddPage(
+                                      goods: goods,
+                                    ),
+                                  ),
+                                );
+
+                                if (result != null) {
+                                  await updateEventGoodsItem(goods['id'], result);
+                                }
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete),
+                              onPressed: () async {
+                                await deleteEventGoodsItem(goods['id']);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+            ),
+            const SizedBox(height: 24),
+
+            const Text(
+              'このイベントの費用',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
               ),
+            ),
+
+            const SizedBox(height: 12),
+
+            SizedBox(
+              height: 220,
+              child: eventExpenses.isEmpty
+                  ? const Center(
+                      child: Text('このイベントの費用はまだありません'),
+                    )
+                  : ListView.builder(
+                      itemCount: eventExpenses.length,
+                      itemBuilder: (context, index) {
+                        final expense = eventExpenses[index];
+
+                        return Card(
+                          child: ListTile(
+                            leading: const Icon(Icons.receipt_long),
+                            title: Text(expense['category']),
+                            subtitle: Text(
+                              expense['memo'] ?? '',
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('¥${expense['amount']}'),
+                                IconButton(
+                                  icon: const Icon(Icons.delete),
+                                  onPressed: () async {
+                                    await deleteEventExpenseItem(expense['id']);
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
             ),
           ],
         ),
@@ -1074,7 +2119,16 @@ class EventDetailPage extends StatelessWidget {
 }
 
 class ExpenseAddPage extends StatefulWidget {
-  const ExpenseAddPage({super.key});
+  final int? defaultEventId;
+  final String? defaultEventName;
+  final Map<String, dynamic>? expense;
+
+  const ExpenseAddPage({
+    super.key,
+    this.defaultEventId,
+    this.defaultEventName,
+    this.expense,
+  });
 
   @override
   State<ExpenseAddPage> createState() => _ExpenseAddPageState();
@@ -1097,10 +2151,24 @@ class _ExpenseAddPageState extends State<ExpenseAddPage> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+
+    if (widget.expense != null) {
+      eventController.text = widget.expense!['event_name'] ?? '';
+      selectedCategory = widget.expense!['category'];
+      amountController.text = widget.expense!['amount'].toString();
+      memoController.text = widget.expense!['memo'] ?? '';
+    } else if (widget.defaultEventName != null) {
+      eventController.text = widget.defaultEventName!;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('費用追加'),
+        title: Text(widget.expense == null ? '費用追加' : '費用編集'),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -1158,7 +2226,7 @@ class _ExpenseAddPageState extends State<ExpenseAddPage> {
                   Navigator.pop(
                     context,
                     {
-                      'event_id': null,
+                      'event_id': widget.defaultEventId ?? widget.expense?['event_id'],
                       'event_name': eventController.text,
                       'category': selectedCategory,
                       'amount': int.tryParse(amountController.text) ?? 0,
@@ -1166,7 +2234,122 @@ class _ExpenseAddPageState extends State<ExpenseAddPage> {
                     },
                   );
                 },
-                child: const Text('登録'),
+                child: Text(widget.expense == null ? '登録' : '更新'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class EventCard extends StatelessWidget {
+  final Map<String, dynamic> event;
+  final Future<void> Function() onDelete;
+  final Future<void> Function() onEdit;
+
+  const EventCard({
+    super.key,
+    required this.event,
+    required this.onDelete,
+    required this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: ListTile(
+        leading: const Icon(Icons.event),
+        title: Text(
+          event['title'],
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        subtitle: Text(
+          '${event['date']} / ${event['venue']}',
+        ),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => EventDetailPage(
+                event: event,
+              ),
+            ),
+          );
+        },
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.edit),
+              onPressed: () async {
+                await onEdit();
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete),
+              onPressed: () async {
+                await onDelete();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+String normalizeText(String text) {
+  return text
+      .trim()
+      .toLowerCase()
+      .replaceAll('　', ' ')
+      .replaceAll('＋', '+');
+}
+
+class _SummaryCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String value;
+
+  const _SummaryCard({
+    required this.icon,
+    required this.title,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 36,
+            ),
+
+            const SizedBox(height: 12),
+
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 16,
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
               ),
             ),
           ],
