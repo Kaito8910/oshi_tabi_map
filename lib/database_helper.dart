@@ -22,9 +22,8 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 4,
+      version: 1,
       onCreate: _createDB,
-      onUpgrade: _upgradeDB,
     );
   }
 
@@ -48,8 +47,7 @@ class DatabaseHelper {
         name TEXT NOT NULL,
         quantity INTEGER NOT NULL,
         price INTEGER NOT NULL,
-        oshi_id INTEGER,
-        oshi_name TEXT
+        oshi_id INTEGER
       )
     ''');
 
@@ -72,42 +70,20 @@ class DatabaseHelper {
         group_name_normalized TEXT,
         color TEXT,
         color_value TEXT,
-        memo TEXT
+        memo TEXT,
+        start_date TEXT
       )
     ''');
-  }
 
-  Future _upgradeDB(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      await db.execute('''
-        ALTER TABLE goods ADD COLUMN oshi_id INTEGER
-      ''');
-
-      await db.execute('''
-        ALTER TABLE goods ADD COLUMN oshi_name TEXT
-      ''');
-
-      await db.execute('''
-        CREATE TABLE oshis (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          group_name TEXT,
-          group_name_normalized TEXT,
-          color TEXT,
-          memo TEXT
-        )
-      ''');
-    }
-    if (oldVersion < 3) {
-      await db.execute('''
-        ALTER TABLE oshis ADD COLUMN color_value TEXT
-      ''');
-    }
-    if (oldVersion < 4) {
-      await db.execute('''
-        ALTER TABLE oshis ADD COLUMN group_name_normalized TEXT
-      ''');
-    }
+    await db.execute('''
+      CREATE TABLE photos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id INTEGER,
+        goods_id INTEGER,
+        image_path TEXT NOT NULL,
+        created_at TEXT
+      )
+    ''');
   }
 
   Future<int> insertEvent(Map<String, dynamic> event) async {
@@ -278,6 +254,63 @@ class DatabaseHelper {
     final db = await instance.database;
     return await db.delete(
       'oshis',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<int> insertPhoto(Map<String, dynamic> photo) async {
+    final db = await instance.database;
+
+    return await db.insert('photos', photo);
+  }
+
+  Future<List<Map<String, dynamic>>> getPhotosByEventId(
+    int eventId,
+  ) async {
+    final db = await instance.database;
+
+    return await db.query(
+      'photos',
+      where: 'event_id = ?',
+      whereArgs: [eventId],
+      orderBy: 'id DESC',
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getPhotosByGoodsId(
+    int goodsId,
+  ) async {
+    final db = await instance.database;
+
+    return await db.query(
+      'photos',
+      where: 'goods_id = ?',
+      whereArgs: [goodsId],
+      orderBy: 'id DESC',
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getAllPhotos() async {
+    final db = await instance.database;
+
+    return await db.rawQuery('''
+      SELECT
+        photos.*,
+        events.title AS event_title,
+        events.date AS event_date
+      FROM photos
+      LEFT JOIN events
+        ON photos.event_id = events.id
+      ORDER BY photos.id DESC
+    ''');
+  }
+
+  Future<int> deletePhoto(int id) async {
+    final db = await instance.database;
+
+    return await db.delete(
+      'photos',
       where: 'id = ?',
       whereArgs: [id],
     );
