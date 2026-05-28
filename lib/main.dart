@@ -3,6 +3,10 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flex_color_picker/flex_color_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'package:archive/archive_io.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'database_helper.dart';
@@ -73,16 +77,18 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int currentIndex = 0;
   bool hidePriceOnStartup = false;
+  int homeRefreshKey = 0;
 
   @override
   Widget build(BuildContext context) {
     final pages = [
       HomePage(
+        refreshKey: homeRefreshKey,
         onNavigate: (index) {
           setState(() {
             currentIndex = index;
           });
-        }
+        },
       ),
       const OshiPage(),
       const EventPage(),
@@ -107,6 +113,10 @@ class _MainScreenState extends State<MainScreen> {
         onDestinationSelected: (index) {
           setState(() {
             currentIndex = index;
+
+            if (index == 0) {
+              homeRefreshKey++;
+            }
           });
         },
         destinations: const [
@@ -147,9 +157,11 @@ class _MainScreenState extends State<MainScreen> {
 
 class HomePage extends StatefulWidget {
   final ValueChanged<int> onNavigate;
+  final int refreshKey;
 
   const HomePage({
     super.key,
+    required this.refreshKey,
     required this.onNavigate,
   });
 
@@ -160,6 +172,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int eventCount = 0;
   int goodsQuantity = 0;
+  int prefectureCount = 0;
   List<Map<String, dynamic>> recentOshis = [];
   Map<String, dynamic>? nextEvent;
 
@@ -167,6 +180,15 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     loadSummary();
+  }
+
+  @override
+  void didUpdateWidget(HomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.refreshKey != widget.refreshKey) {
+      loadSummary();
+    }
   }
 
   Future<void> loadSummary() async {
@@ -208,10 +230,17 @@ class _HomePageState extends State<HomePage> {
       return aDate.compareTo(bDate);
     });
 
+    final prefectures = events
+      .map((e) => e['prefecture'])
+      .where((p) => p != null && p.toString().isNotEmpty)
+      .toSet();
+
     setState(() {
       eventCount = events.length;
       goodsQuantity = totalGoodsQuantity;
       recentOshis = oshis.take(3).toList();
+
+      prefectureCount = prefectures.length;
 
       nextEvent =
           upcomingEvents.isNotEmpty
@@ -247,7 +276,7 @@ class _HomePageState extends State<HomePage> {
         return '今日';
       }
 
-      return 'あと${difference}日';
+      return 'あと$difference日';
     }
 
     return Scaffold(
@@ -331,10 +360,10 @@ class _HomePageState extends State<HomePage> {
                   },
                 ),
 
-                const _SummaryCard(
+                _SummaryCard(
                   icon: Icons.map,
                   title: '遠征',
-                  value: '0都道府県',
+                  value: '$prefectureCount都道府県',
                 ),
               ],
             ),
@@ -701,7 +730,7 @@ class _OshiAddPageState extends State<OshiAddPage> {
                       'group_name': groupController.text,
                       'group_name_normalized': normalizeText(groupController.text),
                       'color': colorController.text,
-                      'color_value': selectedColor.value.toString(),
+                      'color_value': selectedColor.toARGB32().toString(),
                       'memo': memoController.text,
                       'start_date': startDateController.text,
                     },
@@ -1439,7 +1468,8 @@ class _ExpensePageState extends State<ExpensePage> {
     );
   }
 }
-class SettingsPage extends StatelessWidget {
+
+class SettingsPage extends StatefulWidget {
   final bool hidePriceOnStartup;
   final bool darkMode;
   final ValueChanged<bool> onHidePriceChanged;
@@ -1452,6 +1482,209 @@ class SettingsPage extends StatelessWidget {
     required this.onHidePriceChanged,
     required this.onDarkModeChanged,
   });
+
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  Future<void> backupData() async {
+    final data = await DatabaseHelper.instance.exportAllData();
+
+    final tempDir = await getTemporaryDirectory();
+    final backupDir = Directory('${tempDir.path}/oshi_tabi_backup');
+
+    if (await backupDir.exists()) {
+      await backupDir.delete(recursive: true);
+    }
+
+    await backupDir.create(recursive: true);
+
+    final photosDir = Directory('${backupDir.path}/photos');
+    await photosDir.create();
+
+    final photos = data['photos'] as List<Map<String, dynamic>>;
+
+    for (final photo in photos) {
+      final path = photo['image_path']?.toString();
+
+      if (path == null || path.isEmpty) continue;
+
+      final sourceFile = File(path);
+
+      if (await sourceFile.exists()) {
+        final fileName = path.split('/').last;
+        await sourceFile.copy('${photosDir.path}/$fileName');
+      }
+    }
+
+    final jsonFile = File('${backupDir.path}/backup.json');
+    await jsonFile.writeAsString(jsonEncode(data));
+
+    final zipPath =
+        '/storage/emulated/0/Download/oshi_tabi_backup.zip';
+
+    final encoder = ZipFileEncoder();
+    encoder.create(zipPath);
+    encoder.addFile(jsonFile);
+    encoder.addDirectory(photosDir);
+    encoder.close();
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Downloadにバックアップを保存しました'),
+      ),
+    );
+  }
+
+  Future<void> resetData() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('データ初期化'),
+          content: const Text(
+            'すべてのデータを削除します。\nこの操作は元に戻せません。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context, false);
+              },
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(context, true);
+              },
+              child: const Text('削除'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result != true) return;
+
+    await DatabaseHelper.instance.clearAllData();
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('すべてのデータを削除しました'),
+      ),
+    );
+  }
+
+  Future<void> restoreData() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('データ復元'),
+          content: const Text(
+            '現在のデータを削除して、バックアップから復元します。\nよろしいですか？',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context, false);
+              },
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(context, true);
+              },
+              child: const Text('復元する'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm != true) return;
+
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['zip'],
+    );
+
+    if (result == null || result.files.single.path == null) return;
+
+    final zipFile = File(result.files.single.path!);
+
+    final tempDir = await getTemporaryDirectory();
+    final restoreDir = Directory('${tempDir.path}/oshi_tabi_restore');
+
+    if (await restoreDir.exists()) {
+      await restoreDir.delete(recursive: true);
+    }
+
+    await restoreDir.create(recursive: true);
+
+    final bytes = await zipFile.readAsBytes();
+    final archive = ZipDecoder().decodeBytes(bytes);
+
+    for (final file in archive) {
+      final filePath = '${restoreDir.path}/${file.name}';
+
+      if (file.isFile) {
+        final outFile = File(filePath);
+        await outFile.create(recursive: true);
+        await outFile.writeAsBytes(file.content as List<int>);
+      } else {
+        await Directory(filePath).create(recursive: true);
+      }
+    }
+
+    final jsonFile = File('${restoreDir.path}/backup.json');
+
+    if (!await jsonFile.exists()) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('backup.jsonが見つかりません'),
+        ),
+      );
+      return;
+    }
+
+    final jsonString = await jsonFile.readAsString();
+    final data = jsonDecode(jsonString) as Map<String, dynamic>;
+
+    await DatabaseHelper.instance.importAllData(data);
+
+    final appDir = await getApplicationDocumentsDirectory();
+    final restorePhotosDir = Directory('${restoreDir.path}/photos');
+
+    if (await restorePhotosDir.exists()) {
+      final files = restorePhotosDir.listSync();
+
+      for (final file in files) {
+        if (file is File) {
+          final fileName = file.path.split('/').last;
+
+          final newPath =
+              '${appDir.path}/$fileName';
+
+          await file.copy(newPath);
+        }
+      }
+    }
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('データを復元しました'),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1472,14 +1705,14 @@ class SettingsPage extends StatelessWidget {
           SwitchListTile(
             title: const Text('起動時に総金額を非表示'),
             subtitle: const Text('グッズ・費用の金額を隠します'),
-            value: hidePriceOnStartup,
-            onChanged: onHidePriceChanged,
+            value: widget.hidePriceOnStartup,
+            onChanged: widget.onHidePriceChanged,
           ),
           SwitchListTile(
             title: const Text('ダークモード'),
             subtitle: const Text('画面を暗いテーマにします'),
-            value: darkMode,
-            onChanged: onDarkModeChanged,
+            value: widget.darkMode,
+            onChanged: widget.onDarkModeChanged,
           ),
           const Divider(),
           const Padding(
@@ -1492,26 +1725,26 @@ class SettingsPage extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.backup),
             title: const Text('バックアップ'),
-            subtitle: const Text('今後実装予定'),
-            onTap: () {},
+            subtitle: const Text('DownloadにZIPを保存'),
+            onTap: backupData,
           ),
           ListTile(
             leading: const Icon(Icons.restore),
             title: const Text('データ復元'),
-            subtitle: const Text('今後実装予定'),
-            onTap: () {},
+            subtitle: const Text('ZIPから復元'),
+            onTap: restoreData,
           ),
           ListTile(
             leading: const Icon(Icons.delete_forever),
             title: const Text('データ初期化'),
             subtitle: const Text('すべてのデータを削除'),
-            onTap: () {},
+            onTap: resetData,
           ),
           const Divider(),
           const ListTile(
             leading: Icon(Icons.info),
             title: Text('推し旅マップ'),
-            subtitle: Text('Version 0.1.0'),
+            subtitle: Text('Version 1.2.8'),
           ),
         ],
       ),
@@ -1535,6 +1768,19 @@ class _EventAddPageState extends State<EventAddPage> {
   final titleController = TextEditingController();
   final dateController = TextEditingController();
   final venueController = TextEditingController();
+  String selectedPrefecture = '東京都';
+
+  final List<String> prefectures = const [
+    '北海道',
+    '青森県','岩手県','宮城県','秋田県','山形県','福島県',
+    '茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県',
+    '新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県',
+    '三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県',
+    '鳥取県','島根県','岡山県','広島県','山口県',
+    '徳島県','香川県','愛媛県','高知県',
+    '福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県',
+    '沖縄県',
+  ];
 
   @override
   void initState() {
@@ -1547,6 +1793,11 @@ class _EventAddPageState extends State<EventAddPage> {
     } else {
       final now = DateTime.now();
       dateController.text = formatDate(now);
+    }
+
+    if (widget.event != null) {
+      selectedPrefecture =
+          widget.event!['prefecture'] ?? '東京都';
     }
   }
 
@@ -1643,6 +1894,27 @@ class _EventAddPageState extends State<EventAddPage> {
               ),
             ),
 
+            const SizedBox(height: 12),
+
+            DropdownButtonFormField<String>(
+              initialValue: selectedPrefecture,
+              decoration: const InputDecoration(
+                labelText: '都道府県',
+                border: OutlineInputBorder(),
+              ),
+              items: prefectures.map((prefecture) {
+                return DropdownMenuItem(
+                  value: prefecture,
+                  child: Text(prefecture),
+                );
+              }).toList(),
+              onChanged: (value) {
+                setState(() {
+                  selectedPrefecture = value!;
+                });
+              },
+            ),
+
             const SizedBox(height: 20),
 
             SizedBox(
@@ -1655,6 +1927,7 @@ class _EventAddPageState extends State<EventAddPage> {
                       'title': titleController.text,
                       'date': dateController.text,
                       'venue': venueController.text,
+                      'prefecture': selectedPrefecture,
                     },
                   );
                 },
@@ -1811,26 +2084,6 @@ class _GoodsAddPageState extends State<GoodsAddPage> {
             if (purchaseType == 'イベント')
               const SizedBox(height: 12),
 
-            TextField(
-              controller: groupController,
-              decoration: const InputDecoration(
-                labelText: 'グループ名',
-                border: OutlineInputBorder(),
-              ),
-            ),
-
-            const SizedBox(height: 12),
-
-            TextField(
-              controller: memberController,
-              decoration: const InputDecoration(
-                labelText: 'メンバー名',
-                border: OutlineInputBorder(),
-              ),
-            ),
-
-            const SizedBox(height: 12),
-
             DropdownButtonFormField<int?>(
               initialValue: selectedOshiId,
               decoration: const InputDecoration(
@@ -1869,6 +2122,30 @@ class _GoodsAddPageState extends State<GoodsAddPage> {
                 });
               },
             ),
+
+            const SizedBox(height: 12),
+
+            if (selectedOshiId == null) ...[
+              TextField(
+                controller: groupController,
+                decoration: const InputDecoration(
+                  labelText: 'グループ名',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              TextField(
+                controller: memberController,
+                decoration: const InputDecoration(
+                  labelText: 'メンバー名',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+            ],
 
             const SizedBox(height: 12),
 
@@ -2021,18 +2298,18 @@ class _EventDetailPageState extends State<EventDetailPage> {
   }
 
   Future<void> addEventPhoto() async {
-    final image = await picker.pickImage(
-      source: ImageSource.gallery,
-    );
+    final images = await picker.pickMultiImage();
 
-    if (image == null) return;
+    if (images.isEmpty) return;
 
-    await DatabaseHelper.instance.insertPhoto({
-      'event_id': widget.event['id'],
-      'goods_id': null,
-      'image_path': image.path,
-      'created_at': DateTime.now().toIso8601String(),
-    });
+    for (final image in images) {
+      await DatabaseHelper.instance.insertPhoto({
+        'event_id': widget.event['id'],
+        'goods_id': null,
+        'image_path': image.path,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+    }
 
     await loadEventGoods();
   }
@@ -2109,15 +2386,6 @@ class _EventDetailPageState extends State<EventDetailPage> {
         padding: const EdgeInsets.all(16),
         child: ListView(
           children: [
-            Text(
-              widget.event['title'],
-              style: const TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-
-            const SizedBox(height: 12),
 
             FilledButton.icon(
               onPressed: addEventPhoto,
@@ -2342,40 +2610,41 @@ class _EventDetailPageState extends State<EventDetailPage> {
                     ),
                   )
                 else
-                  SizedBox(
-                    height: 120,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: eventPhotos.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 12),
-                      itemBuilder: (context, index) {
-                        final photo = eventPhotos[index];
-
-                        return GestureDetector(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => PhotoViewerPage(
-                                  imagePath: photo['image_path'],
-                                  eventTitle: widget.event['title'],
-                                  eventDate: widget.event['date'],
-                                ),
-                              ),
-                            );
-                          },
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(16),
-                            child: Image.file(
-                              File(photo['image_path']),
-                              width: 120,
-                              height: 120,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                        );
-                      },
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: eventPhotos.length,
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      crossAxisSpacing: 8,
+                      mainAxisSpacing: 8,
                     ),
+                    itemBuilder: (context, index) {
+                      final photo = eventPhotos[index];
+
+                      return GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => PhotoViewerPage(
+                                imagePath: photo['image_path'],
+                                eventTitle: widget.event['title'],
+                                eventDate: widget.event['date'],
+                              ),
+                            ),
+                          );
+                        },
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.file(
+                            File(photo['image_path']),
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      );
+                    },
                   ),
           ],
         ),
@@ -2568,6 +2837,7 @@ class EventCard extends StatelessWidget {
     );
   }
 }
+
 String normalizeText(String text) {
   return text
       .trim()
@@ -2705,6 +2975,10 @@ class _AlbumPageState extends State<AlbumPage> {
                     );
 
                     if (result == true) {
+                      final file = File(photo['image_path']);
+                      if (await file.exists()) {
+                        await file.delete();
+                      }
                       await DatabaseHelper.instance.deletePhoto(
                         photo['id'],
                       );

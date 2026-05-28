@@ -1,17 +1,93 @@
-# oshi_tabi_map
+# 推し旅マップ
 
-A new Flutter project.
+推し活のイベント・グッズ・費用・写真をまとめて記録できるFlutter製スマホアプリです。
 
-## Getting Started
+## アプリ概要
 
-This project is a starting point for a Flutter application.
+推し活で参加したイベントや購入したグッズ、遠征費などを一括で管理できます。
+イベントごとの写真記録や、推しごとのグッズ管理にも対応しています。
 
-A few resources to get you started if this is your first Flutter project:
+## 主な機能
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+### 推し管理
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+* 推し情報の登録
+* グループ名・メンバーカラー設定
+* 推しメモ管理
+
+### イベント管理
+
+* イベント登録
+* 日付・会場管理
+* 次回イベント表示
+* 過去イベント一覧表示
+
+### グッズ管理
+
+* グッズ登録
+* カテゴリ管理
+* 購入数・金額管理
+* イベント別グッズ管理
+* 推し別グッズ管理
+
+### 費用管理
+
+* チケット代
+* 交通費
+* 宿泊費
+* 飲食代
+* その他費用管理
+
+### 写真管理
+
+* イベント写真登録
+* アルバム表示
+* 写真拡大表示
+
+### バックアップ機能
+
+* ZIP形式バックアップ
+* データ復元
+* データ初期化
+
+### その他
+
+* ダークモード
+* 金額非表示機能
+* 遠征都道府県数表示
+
+---
+
+# 使用技術
+
+* Flutter
+* Dart
+* SQLite (sqflite)
+* shared_preferences
+* image_picker
+
+---
+
+# 開発環境
+
+* Flutter 3.x
+* Dart 3.x
+* Android Studio
+* Visual Studio Code
+
+---
+
+# 制作目的
+
+推し活の記録を一つのアプリでまとめて管理できるようにすることを目的として制作しました。
+イベント・グッズ・費用・写真を関連付けて記録できる点を重視しています。
+
+---
+
+# 今後追加したい機能
+
+* 都道府県マップ表示
+* 統計グラフ
+* カレンダー表示
+* 検索機能強化
+* iOS対応

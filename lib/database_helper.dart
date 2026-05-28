@@ -33,7 +33,8 @@ class DatabaseHelper {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
         date TEXT NOT NULL,
-        venue TEXT NOT NULL
+        venue TEXT NOT NULL,
+        prefecture TEXT NOT NULL
       )
     ''');
 
@@ -314,5 +315,53 @@ class DatabaseHelper {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  Future<Map<String, dynamic>> exportAllData() async {
+    final db = await database;
+
+  return {
+    'oshis': await db.query('oshis'),
+    'events': await db.query('events'),
+    'goods': await db.query('goods'),
+    'expenses': await db.query('expenses'),
+    'photos': await db.query('photos'),
+    };
+  }
+
+  Future<void> clearAllData() async {
+    final db = await database;
+
+    await db.delete('photos');
+    await db.delete('expenses');
+    await db.delete('goods');
+    await db.delete('events');
+    await db.delete('oshis');
+  }
+
+  Future<void> importAllData(Map<String, dynamic> data) async {
+    final db = await database;
+
+    await clearAllData();
+
+    for (final item in data['oshis'] ?? []) {
+      await db.insert('oshis', Map<String, dynamic>.from(item));
+    }
+
+    for (final item in data['events'] ?? []) {
+      await db.insert('events', Map<String, dynamic>.from(item));
+    }
+
+    for (final item in data['goods'] ?? []) {
+      await db.insert('goods', Map<String, dynamic>.from(item));
+    }
+
+    for (final item in data['expenses'] ?? []) {
+      await db.insert('expenses', Map<String, dynamic>.from(item));
+    }
+
+    for (final item in data['photos'] ?? []) {
+      await db.insert('photos', Map<String, dynamic>.from(item));
+    }
   }
 }
