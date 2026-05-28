@@ -6,10 +6,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:archive/archive_io.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:file_picker/file_picker.dart';
-import 'dart:io';
+import 'package:file_selector/file_selector.dart';
 import 'package:image_picker/image_picker.dart';
 import 'database_helper.dart';
+import 'dart:io';
 
 void main() {
   runApp(const OshiTabiMapApp());
@@ -1608,14 +1608,18 @@ class _SettingsPageState extends State<SettingsPage> {
 
     if (confirm != true) return;
 
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['zip'],
+    const typeGroup = XTypeGroup(
+      label: 'zip',
+      extensions: ['zip'],
     );
 
-    if (result == null || result.files.single.path == null) return;
+    final result = await openFile(
+      acceptedTypeGroups: [typeGroup],
+    );
 
-    final zipFile = File(result.files.single.path!);
+    if (result == null) return;
+
+    final zipFile = File(result.path);
 
     final tempDir = await getTemporaryDirectory();
     final restoreDir = Directory('${tempDir.path}/oshi_tabi_restore');

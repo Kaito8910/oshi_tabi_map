@@ -1,3 +1,11 @@
 cd C:\Users\3031740\Desktop\oshi_tabi_map
 
 flutter run -d chrome
+
+
+git status
+git stash
+git pull
+git stash pop
+
+flutter run
