@@ -364,6 +364,14 @@ class _HomePageState extends State<HomePage> {
                   icon: Icons.map,
                   title: '遠征',
                   value: '$prefectureCount都道府県',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const PrefectureRankingPage(),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -946,7 +954,7 @@ class _EventPageState extends State<EventPage> {
   }
 
   Future<void> deleteEventItem(int id) async {
-    await DatabaseHelper.instance.deleteEvent(id);
+    await DatabaseHelper.instance.deleteEventWithRelatedData(id);
     await loadEvents();
   }
 
@@ -2677,6 +2685,8 @@ class _ExpenseAddPageState extends State<ExpenseAddPage> {
   final amountController = TextEditingController();
   final memoController = TextEditingController();
   final eventController = TextEditingController();
+  List<Map<String, dynamic>> events = [];
+ int? selectedEventId;
 
   String selectedCategory = 'チケット代';
 
@@ -2689,17 +2699,27 @@ class _ExpenseAddPageState extends State<ExpenseAddPage> {
     'その他',
   ];
 
+  Future<void> loadEvents() async {
+    final data = await DatabaseHelper.instance.getEvents();
+
+    setState(() {
+      events = data;
+    });
+  }
+
   @override
   void initState() {
     super.initState();
 
+    loadEvents();
+
     if (widget.expense != null) {
-      eventController.text = widget.expense!['event_name'] ?? '';
+      selectedEventId = widget.expense!['event_id'];
       selectedCategory = widget.expense!['category'];
       amountController.text = widget.expense!['amount'].toString();
       memoController.text = widget.expense!['memo'] ?? '';
-    } else if (widget.defaultEventName != null) {
-      eventController.text = widget.defaultEventName!;
+    } else {
+      selectedEventId = widget.defaultEventId;
     }
   }
 
@@ -2713,12 +2733,23 @@ class _ExpenseAddPageState extends State<ExpenseAddPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            TextField(
-              controller: eventController,
+            DropdownButtonFormField<int>(
+              initialValue: selectedEventId,
               decoration: const InputDecoration(
                 labelText: '対象イベント',
                 border: OutlineInputBorder(),
               ),
+              items: events.map((event) {
+                return DropdownMenuItem<int>(
+                  value: event['id'],
+                  child: Text(event['title']),
+                );
+              }).toList(),
+              onChanged: (value) {
+                setState(() {
+                  selectedEventId = value;
+                });
+              },
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
@@ -2762,11 +2793,15 @@ class _ExpenseAddPageState extends State<ExpenseAddPage> {
               width: double.infinity,
               child: FilledButton(
                 onPressed: () {
+                  final selectedEvent = events.firstWhere(
+                    (e) => e['id'] == selectedEventId,
+                  );
+
                   Navigator.pop(
                     context,
                     {
-                      'event_id': widget.defaultEventId ?? widget.expense?['event_id'],
-                      'event_name': eventController.text,
+                      'event_id': selectedEventId,
+                      'event_name': selectedEvent['title'],
                       'category': selectedCategory,
                       'amount': int.tryParse(amountController.text) ?? 0,
                       'memo': memoController.text,
@@ -2832,11 +2867,106 @@ class EventCard extends StatelessWidget {
             IconButton(
               icon: const Icon(Icons.delete),
               onPressed: () async {
-                await onDelete();
+                final result = await showDialog<bool>(
+                  context: context,
+                  builder: (context) {
+                    return AlertDialog(
+                      title: const Text('イベント削除'),
+                      content: const Text(
+                        'このイベントを削除しますか？\n\n'
+                        '関連する写真・グッズ・費用も削除されます。',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () {
+                            Navigator.pop(context, false);
+                          },
+                          child: const Text('キャンセル'),
+                        ),
+                        FilledButton(
+                          onPressed: () {
+                            Navigator.pop(context, true);
+                          },
+                          child: const Text('削除'),
+                        ),
+                      ],
+                    );
+                  },
+                );
+
+                if (result == true) {
+                  await onDelete();
+                }
               },
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class PrefectureRankingPage extends StatefulWidget {
+  const PrefectureRankingPage({super.key});
+
+  @override
+  State<PrefectureRankingPage> createState() =>
+      _PrefectureRankingPageState();
+}
+
+class _PrefectureRankingPageState
+    extends State<PrefectureRankingPage> {
+
+  List<MapEntry<String, int>> ranking = [];
+
+  @override
+  void initState() {
+    super.initState();
+    loadRanking();
+  }
+
+  Future<void> loadRanking() async {
+    final events =
+        await DatabaseHelper.instance.getEvents();
+
+    final Map<String, int> counts = {};
+
+    for (final event in events) {
+      final prefecture = event['prefecture'];
+
+      if (prefecture == null) continue;
+
+      counts[prefecture] =
+          (counts[prefecture] ?? 0) + 1;
+    }
+
+    final sorted = counts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    setState(() {
+      ranking = sorted;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('遠征ランキング'),
+      ),
+      body: ListView.builder(
+        itemCount: ranking.length,
+        itemBuilder: (context, index) {
+          final item = ranking[index];
+
+          return ListTile(
+            leading: CircleAvatar(
+              child: Text('${index + 1}'),
+            ),
+            title: Text(item.key),
+            trailing: Text('${item.value}回'),
+          );
+        },
       ),
     );
   }

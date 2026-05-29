@@ -1,5 +1,6 @@
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
+import 'dart:io';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -363,5 +364,47 @@ class DatabaseHelper {
     for (final item in data['photos'] ?? []) {
       await db.insert('photos', Map<String, dynamic>.from(item));
     }
+  }
+
+  Future<void> deleteEventWithRelatedData(int eventId) async {
+    final db = await database;
+
+    final photos = await getPhotosByEventId(eventId);
+
+    for (final photo in photos) {
+      final path = photo['image_path']?.toString();
+
+      if (path != null && path.isNotEmpty) {
+        final file = File(path);
+
+        if (await file.exists()) {
+          await file.delete();
+        }
+      }
+    }
+
+    await db.delete(
+      'photos',
+      where: 'event_id = ?',
+      whereArgs: [eventId],
+    );
+
+    await db.delete(
+      'goods',
+      where: 'event_id = ?',
+      whereArgs: [eventId],
+    );
+
+    await db.delete(
+      'expenses',
+      where: 'event_id = ?',
+      whereArgs: [eventId],
+    );
+
+    await db.delete(
+      'events',
+      where: 'id = ?',
+      whereArgs: [eventId],
+    );
   }
 }
